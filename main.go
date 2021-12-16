@@ -3,17 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
-	"go/parser"
-	"go/token"
 	"os"
-	"path/filepath"
-	"sort"
-	"strings"
+
+	"github.com/anorth/godep/internal/db"
+	"github.com/anorth/godep/internal/fetch"
+	"github.com/anorth/godep/pkg/model"
 )
 
 func main() {
-	skipTestPackages := flag.Bool("skip-test-pkg", false, "Skips packages ending in _test")
-	skipTestFiles := flag.Bool("skip-test-file", false, "Skips files ending in _test")
 	skipSystemImports := flag.Bool("skip-system", false, "Skips import of system packages")
 
 	flag.Parse()
@@ -23,61 +20,61 @@ func main() {
 		fail("Usage: %s <path>\n", os.Args[0])
 	}
 	root := args[0]
-
-	gr := New()
-	acceptAll := func(info os.FileInfo) bool { return true }
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			return nil
-		}
-		if len(info.Name()) > 1 && info.Name()[0] == '.' {
-			return filepath.SkipDir
-		}
-
-		fset := token.NewFileSet()
-		pkgs, err := parser.ParseDir(fset, path, acceptAll, 0)
-		if err != nil {
-			fail("error parsing %s: %v\n", path, err)
-		}
-
-		for _, pkg := range pkgs {
-			for fileName, f := range pkg.Files {
-				gr.AddFile(Package{Path: path, Name: pkg.Name}, fileName)
-				for _, m := range f.Imports {
-					gr.AddImport(fileName, m.Path.Value)
-				}
-			}
-		}
-
-		return nil
-	})
-	if err != nil {
-		fail("error walking %q: %v\n", root, err)
-	}
-
 	var opts []EachOpt
-	if *skipTestPackages {
-		opts = append(opts, SkipTestPackages())
-	}
-	if *skipTestFiles {
-		opts = append(opts, SkipTestFiles())
-	}
 	if *skipSystemImports {
 		opts = append(opts, SkipSystemImports())
 	}
-	//gr.EachFile(func(path string, imports []string) {
-	//	fmt.Println(path)
-	//	for _, im := range imports {
-	//		fmt.Printf("  %s\n", im)
-	//	}
-	//}, opts...)
 
-	gr.EachPackage(func(pkg Package, imports []string) {
-		fmt.Printf("%s:%s\n", pkg.Path, pkg.Name)
-		for _, im := range imports {
-			fmt.Printf("  %s\n", im)
+	// XXX: how to iterate all the packages in a module even if they are not imported by the root package
+
+	mods, err := fetch.ListModules(root)
+	if err != nil {
+		fail("error listing modules: %v", err)
+	}
+	modules := db.NewModules(mods)
+
+	modDeps, err := fetch.ListModuleDependencies(root)
+	if err != nil {
+		fail("error listing dependencies: %v", err)
+	}
+	modGraph := db.NewModGraph(modDeps)
+
+	//dumpModules(modules)
+	//dumpPackages(root, opts)
+	//dumpDependencies(root)
+
+	//showVersions(modGraph, "github.com/ipfs/go-cid")
+
+	// TODO: consider skipping the main module itself, since it _is_ tested with the MVS-selected version of deps.
+	q := []model.ModuleVersion{{modules.Main().Path, modules.Main().Version}}
+	modulesSeen := map[string]struct{}{q[0].Module: {}}
+	var node model.ModuleVersion
+	for len(q) > 0 {
+		node, q = q[0], q[1:]
+
+		deps := modGraph.UpstreamOf(node.Module, node.Version)
+		//fmt.Println(node, deps)
+		for _, d := range deps {
+			bestVersion, err := modGraph.HighestVersion(d.Upstream.Module)
+			if err != nil {
+				_, _ = fmt.Fprintln(os.Stderr, "failed checking highest version of", d.Upstream.Module, err)
+				continue
+			}
+			if d.Upstream.Version != bestVersion {
+				fmt.Println(node, "depends on", d.Upstream, "but MVS selects", bestVersion)
+			} else {
+				// Trace through deeper in the dep graph only for the MVS-selected version of each dependency.
+				// Nothing can be done about the older versions anyway.
+				// TODO: tighten this further to inspect the latest version that exists (even if not selected by MVS)
+
+				_, seen := modulesSeen[d.Upstream.Module]
+				if !seen && d.Upstream.Module[:11] != "golang.org/" { // TODO: replace with whitelist
+					q = append(q, d.Upstream)
+					modulesSeen[d.Upstream.Module] = struct{}{}
+				}
+			}
 		}
-	}, opts...)
+	}
 }
 
 func fail(format string, args ...interface{}) {
@@ -89,105 +86,86 @@ func fail(format string, args ...interface{}) {
 //
 //
 
-type Package struct {
-	Path string
-	Name string
+func dumpModules(mods []*model.ModuleInfo) {
+	for _, mod := range mods {
+		fmt.Println(mod.Path, mod.Version)
+	}
 }
 
+func dumpPackages(root string, opts []EachOpt) {
+	gr := New()
+	packages, err := fetch.ListPackages(root)
+	if err != nil {
+		fail("error listing dependencies: %v", err)
+	}
+	for _, pkg := range packages {
+		//fmt.Println(pkg.ImportPath)
+		//fmt.Println(pkg.Imports)
+		gr.AddPackage(pkg)
+	}
+
+	// FIXME for this case, we only want to traverse packages in this module, not the whole dep tree.
+	gr.EachPackage(func(pkg *model.PackageInfo) {
+		fmt.Printf("%s:%s\n", pkg.ImportPath, pkg.Name)
+		for _, im := range pkg.Imports {
+			fmt.Printf("  %s\n", im)
+		}
+	}, opts...)
+}
+
+func dumpDependencies(root string) {
+	deps, err := fetch.ListModuleDependencies(root)
+	if err != nil {
+		fail("error listing dependencies: %v", err)
+	}
+
+	for _, dep := range deps {
+		fmt.Println(dep)
+	}
+}
+
+func showVersions(g *db.ModGraph, upstream string) {
+	on := g.DownstreamOf(upstream, "")
+	for _, downstream := range on {
+		fmt.Println(downstream)
+	}
+}
+
+//
+//
+//
+
 type Graph struct {
-	pkgs     []Package
-	pkgFiles map[Package][]string // Package -> file paths
-	imports  map[string][]string  // File path -> import paths
+	// XXX is a map sufficient here? can same path point to different package infos?
+	pkgs map[string]*model.PackageInfo // Import path -> package info
 }
 
 func New() *Graph {
-	return &Graph{nil, make(map[Package][]string), make(map[string][]string)}
+	return &Graph{make(map[string]*model.PackageInfo)}
 }
 
-func (g *Graph) AddFile(pkg Package, filePath string) {
-	_, fileFound := g.imports[filePath]
-	if fileFound {
-		panic(fmt.Sprintf("Duplicate file %s", filePath))
+func (g *Graph) AddPackage(pkg *model.PackageInfo) {
+	_, found := g.pkgs[pkg.ImportPath]
+	if found {
+		panic(fmt.Sprintf("duplicate package %s", pkg.ImportPath))
 	}
-	_, pkgFound := g.pkgFiles[pkg]
-	if !pkgFound {
-		g.pkgs = append(g.pkgs, pkg)
-	}
-	g.pkgFiles[pkg] = append(g.pkgFiles[pkg], filePath)
-	g.imports[filePath] = []string{}
+	g.pkgs[pkg.ImportPath] = pkg
 }
 
-func (g *Graph) AddImport(filePath string, importPath string) {
-	_, found := g.imports[filePath]
-	if !found {
-		panic(fmt.Sprintf("Unknown file %s", filePath))
-	}
-	g.imports[filePath] = append(g.imports[filePath], importPath)
-}
-
-func (g *Graph) EachPackage(cb func(Package, []string), opts ...EachOpt) {
+func (g *Graph) EachPackage(cb func(*model.PackageInfo), opts ...EachOpt) {
 	resolved := resolveOpts(opts)
 	for _, pkg := range g.pkgs {
-		if resolved.SkipPackage(&pkg) {
+		if resolved.SkipPackage(pkg) {
 			continue
 		}
-		// Accumulate imports from all files
-		pkgImports := make(map[string]struct{})
-		for _, f := range g.pkgFiles[pkg] {
-			if resolved.SkipFile(f) {
-				continue
-			}
-			for _, i := range g.imports[f] {
-				pkgImports[i] = struct{}{}
-			}
-		}
-		unique := resolved.FilterImports(keys(pkgImports))
-		sort.Slice(unique, func(i, j int) bool {
-			// Sort by system imports, then lexicographically.
-			if isSystemImport(unique[i]) && !isSystemImport(unique[j]) {
-				return true
-			} else if !isSystemImport(unique[i]) && isSystemImport(unique[j]) {
-				return false
-			}
-			return strings.Compare(unique[i], unique[j]) < 0
-		})
-		cb(pkg, unique)
-	}
-}
-
-func (g *Graph) EachFile(cb func(string, []string), opts ...EachOpt) {
-	resolved := resolveOpts(opts)
-	for _, pkg := range g.pkgs {
-		if resolved.SkipPackage(&pkg) {
-			continue
-		}
-		for _, f := range g.pkgFiles[pkg] {
-			if resolved.SkipFile(f) {
-				continue
-			}
-			cb(f, resolved.FilterImports(g.imports[f][:]))
-		}
+		cb(pkg)
 	}
 }
 
 type EachOpt func(opts *eachOpts)
 
 type eachOpts struct {
-	skipTestPackages  bool
-	skipTestFiles     bool
 	skipSystemImports bool
-}
-
-func SkipTestPackages() EachOpt {
-	return func(opts *eachOpts) {
-		opts.skipTestPackages = true
-	}
-}
-
-func SkipTestFiles() EachOpt {
-	return func(opts *eachOpts) {
-		opts.skipTestFiles = true
-	}
 }
 
 func SkipSystemImports() EachOpt {
@@ -204,31 +182,8 @@ func resolveOpts(opts []EachOpt) *eachOpts {
 	return resolved
 }
 
-func (o *eachOpts) SkipPackage(p *Package) bool {
-	return o.skipTestPackages && strings.HasSuffix(p.Name, "_test")
-}
-
-func (o *eachOpts) SkipFile(name string) bool {
-	return o.skipTestFiles && strings.HasSuffix(name, "_test")
-}
-
-func (o *eachOpts) FilterImports(imports []string) []string {
-	if !o.skipSystemImports {
-		return imports
-	}
-	var filtered []string
-	for _, im := range imports {
-		if !isSystemImport(im) {
-			filtered = append(filtered, im)
-		}
-	}
-	return filtered
-}
-
-// Hacky check for system imports
-func isSystemImport(path string) bool {
-	count := strings.Count(path, "/")
-	return count < 2
+func (o *eachOpts) SkipPackage(p *model.PackageInfo) bool {
+	return o.skipSystemImports && p.Standard
 }
 
 // Returns the keys from a string map.
