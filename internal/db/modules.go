@@ -6,6 +6,7 @@ import (
 	"github.com/anorth/godep/pkg/model"
 )
 
+// A module database.
 type Modules struct {
 	modules []*model.ModuleInfo // Main module is first, otherwise unordered
 	// TODO: indexes
@@ -13,6 +14,10 @@ type Modules struct {
 
 func NewModules(modules []*model.ModuleInfo) *Modules {
 	return &Modules{modules}
+}
+
+func (m *Modules) All() []*model.ModuleInfo {
+	return m.modules[:]
 }
 
 func (m *Modules) Main() *model.ModuleInfo {

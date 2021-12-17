@@ -25,10 +25,11 @@ func ListModules(modulePath string) ([]*model.ModuleInfo, error) {
 	return moduleList, nil
 }
 
-func ListPackages(modulePath string) ([]*model.PackageInfo, error) {
-	raw, err := Exec(modulePath, "go", "list", "-json", "all")
+// Lists all packages transitively depended upon by a path.
+func ListPackages(packagePath string) ([]*model.PackageInfo, error) {
+	raw, err := Exec(packagePath, "go", "list", "-json", "all")
 	if err != nil {
-		return nil, fmt.Errorf("failed listing packages for %s: %w", modulePath, err)
+		return nil, fmt.Errorf("failed listing packages for %s: %w", packagePath, err)
 	}
 
 	// The output is a sequence of PackageInfo structs, lacking delimiting commas or
