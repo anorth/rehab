@@ -3,7 +3,7 @@ package db
 import (
 	"fmt"
 
-	"github.com/anorth/godep/pkg/model"
+	"github.com/anorth/rehab/pkg/model"
 	"golang.org/x/mod/semver"
 )
 

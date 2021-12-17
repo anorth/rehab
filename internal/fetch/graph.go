@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anorth/godep/pkg/model"
+	"github.com/anorth/rehab/pkg/model"
 )
 
 // Lists the module requirement graph of the module at modulePath.

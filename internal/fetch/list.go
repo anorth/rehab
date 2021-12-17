@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/anorth/godep/pkg/model"
+	"github.com/anorth/rehab/pkg/model"
 )
 
 // Lists all active modules under a path. The main module is the one contained in modulePath, and the active

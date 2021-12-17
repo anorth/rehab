@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/anorth/godep/internal/action"
-	"github.com/anorth/godep/internal/db"
-	"github.com/anorth/godep/internal/fetch"
-	"github.com/anorth/godep/pkg/model"
+	"github.com/anorth/rehab/internal/action"
+	"github.com/anorth/rehab/internal/db"
+	"github.com/anorth/rehab/internal/fetch"
+	"github.com/anorth/rehab/pkg/model"
 )
 
 func main() {

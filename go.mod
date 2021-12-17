@@ -1,4 +1,4 @@
-module github.com/anorth/godep
+module github.com/anorth/rehab
 
 go 1.16
 
