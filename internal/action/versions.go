@@ -10,10 +10,29 @@ import (
 
 type StaleVersion struct {
 	Consumer        model.ModuleVersion // The module version requiring an old upstream dependency
-	Requirement     model.ModuleVersion // The module required and declared version
-	SelectedVersion string              // The version selected by MVS
-	SelectedReason  model.ModuleVersion // A (transitively) required module that declares the selected version requirement
+	Requirement     model.ModuleVersion // The upstream module required and declared version
+	SelectedVersion string              // The requirement version selected by MVS
+	SelectedReason  model.ModuleVersion // A (transitively) required module that declares the MVS-selected version requirement
+	TransitiveStale bool                // True if the requirement has transitively stale requirements and is not a latest version
 	HighestVersion  string              // The highest available version of the requirement
+}
+
+func (sv *StaleVersion) String() string {
+	tag := "-"
+	obsolete := sv.SelectedVersion != sv.HighestVersion
+	if obsolete {
+		tag = "O"
+	}
+	via := fmt.Sprintf(" via %s", sv.SelectedReason)
+	if sv.SelectedReason.Module == "" || sv.SelectedReason == sv.Consumer {
+		via = ""
+	}
+	if sv.TransitiveStale {
+		via = via + " (has stale transitive requirements)"
+	}
+
+	return fmt.Sprintf("%s%s requires %s, builds with %s%s (highest %s)",
+		tag, sv.Consumer, sv.Requirement, sv.SelectedVersion, via, sv.HighestVersion)
 }
 
 // Finds imports in a dependency tree based at some root module where a declared dependency module version
@@ -21,49 +40,96 @@ type StaleVersion struct {
 // This situation means that the tests for the consuming module run with a different version of the
 // dependency than that actually used in production.
 func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersion {
-	// TODO: consider skipping the main module itself, since it _is_ tested with the MVS-selected version of deps.
+	// TODO: option to only suggest release versions, not git checkpoints
+	// TODO: option to only propose fixes to known latest versions
 	var found []*StaleVersion
 	q := []model.ModuleVersion{{modules.Main().Path, modules.Main().Version}}
+	// Records the modules in the graph which have been traversed already.
 	modulesSeen := map[string]struct{}{q[0].Module: {}}
+	// Records the stale relationships already recorded.
+	type staleversionkey struct {
+		consumer, requirement string
+	}
+	edgesSeen := map[staleversionkey]struct{}{}
 	var node model.ModuleVersion
 	for len(q) > 0 {
 		node, q = q[0], q[1:]
-		deps := modGraph.UpstreamOf(node.Module, node.Version)
-		//fmt.Println(node, deps)
-		for _, d := range deps {
-			selected, reason, err := modGraph.HighestVersion(d.Upstream.Module)
-			if err != nil {
-				_, _ = fmt.Fprintln(os.Stderr, "failed checking highest version of", d.Upstream.Module, err)
+		requirements := modGraph.UpstreamOf(node.Module, node.Version)
+		downstreamInfo, err := modules.ForPath(node.Module)
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "failed loading module of", node.Module, err)
+			continue
+		}
+		downstreamIsOutdated := false
+		for _, req := range requirements {
+			key := staleversionkey{consumer: req.Downstream.Module, requirement: req.Upstream.Module}
+			if _, ok := edgesSeen[key]; ok {
 				continue
 			}
-			if d.Upstream.Version != selected {
-				//fmt.Println(node, "depends on", d.Upstream, "but MVS selects", selected)
-				selectedInfo, err := modules.ForPath(d.Upstream.Module)
-				if err != nil {
-					_, _ = fmt.Fprintln(os.Stderr, "failed loading module of", d.Upstream.Module, err)
+			upstreamSelected, reason, err := modGraph.SelectedVersion(req.Upstream.Module)
+			if err != nil {
+				_, _ = fmt.Fprintln(os.Stderr, "failed checking highest version of", req.Upstream.Module, err)
+				continue
+			}
+			upstreamInfo, err := modules.ForPath(req.Upstream.Module)
+			if err != nil {
+				_, _ = fmt.Fprintln(os.Stderr, "failed loading module of", req.Upstream.Module, err)
+				continue
+			}
+			upstreamLatest := upstreamInfo.Version
+			if upstreamInfo.Update != nil {
+				upstreamLatest = upstreamInfo.Update.Version
+			}
+			upstreamMismatch := req.Upstream.Version != upstreamSelected
+
+			if upstreamMismatch {
+				// Suggest updating the downstream module's mismatched requirement on the upstream.
+				// If downstream is out of date, we can't check what version of the upstream would have been
+				// selected by the most recent downstream version, but suggest upgrading anyway.
+				// This suggestion can be ignored if it turns out to be irrelevant.
+				found = append(found, &StaleVersion{
+					Consumer:        req.Downstream,
+					Requirement:     req.Upstream,
+					SelectedVersion: upstreamSelected,
+					SelectedReason:  reason,
+					TransitiveStale: false,
+					HighestVersion:  upstreamLatest,
+				})
+				edgesSeen[key] = struct{}{}
+
+				// If downstream is out of date but was pulling in an old version of some requirement,
+				// suggest updating the consumers of this out-of-date downstream module, too.
+				if downstreamInfo.Update != nil {
+					downstreamIsOutdated = true
+				}
+			} else {
+				// Trace through deeper in the requirement graph only for the version of the upstream
+				// that is the one selected by MVS.
+				_, seen := modulesSeen[req.Upstream.Module]
+				if !seen && req.Upstream.Module[:11] != "golang.org/" { // TODO: replace with whitelist
+					q = append(q, req.Upstream)
+					modulesSeen[req.Upstream.Module] = struct{}{}
+				}
+			}
+		}
+
+		if downstreamIsOutdated {
+			downstreamLatest := downstreamInfo.Update
+			requirers := modGraph.DownstreamOf(downstreamInfo.Path, downstreamInfo.Version)
+			for _, req := range requirers {
+				key := staleversionkey{consumer: req.Downstream.Module, requirement: req.Upstream.Module}
+				if _, ok := edgesSeen[key]; ok {
 					continue
 				}
-				highestVersion := selectedInfo.Version
-				for _, v := range selectedInfo.Versions {
-					highestVersion = v // XXX are they in increasing order?
-				}
 				found = append(found, &StaleVersion{
-					Consumer:        node,
-					Requirement:     d.Upstream,
-					SelectedVersion: selected,
-					SelectedReason:  reason,
-					HighestVersion:  highestVersion,
+					Consumer:        req.Downstream,
+					Requirement:     req.Upstream,
+					SelectedVersion: downstreamInfo.Version,
+					SelectedReason:  req.Downstream,
+					TransitiveStale: true,
+					HighestVersion:  downstreamLatest.Version,
 				})
-			} else {
-				// Trace through deeper in the dep graph only for the MVS-selected version of each dependency.
-				// Nothing can be done about the older versions anyway.
-				// TODO: tighten this further to inspect the latest version that exists (even if not selected by MVS)
-
-				_, seen := modulesSeen[d.Upstream.Module]
-				if !seen && d.Upstream.Module[:11] != "golang.org/" { // TODO: replace with whitelist
-					q = append(q, d.Upstream)
-					modulesSeen[d.Upstream.Module] = struct{}{}
-				}
+				edgesSeen[key] = struct{}{}
 			}
 		}
 	}

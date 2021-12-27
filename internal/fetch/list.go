@@ -11,7 +11,7 @@ import (
 // Lists all active modules under a path. The main module is the one contained in modulePath, and the active
 // modules are the main module and its dependencies.
 func ListModules(modulePath string) ([]*model.ModuleInfo, error) {
-	raw, err := Exec(modulePath, "go", "list", "-json", "-m", "all")
+	raw, err := Exec(modulePath, "go", "list", "-json", "-u", "-m", "all")
 	if err != nil {
 		return nil, fmt.Errorf("failed listing packages for %s: %w", modulePath, err)
 	}

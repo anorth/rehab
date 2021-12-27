@@ -45,9 +45,9 @@ func (g *ModGraph) DownstreamOf(moduleName string, version string) []model.Modul
 	return result
 }
 
-// Returns the highest version of a module depended upon, with one of the modules that explicitly
-// imports it.
-func (g *ModGraph) HighestVersion(moduleName string) (string, model.ModuleVersion, error) {
+// Returns the highest version of a module required by the graph, with one of the modules that explicitly
+// requires it.
+func (g *ModGraph) SelectedVersion(moduleName string) (string, model.ModuleVersion, error) {
 	var result string
 	var reason model.ModuleVersion
 	for _, e := range g.edges {
