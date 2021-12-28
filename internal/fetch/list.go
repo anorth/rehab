@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/anorth/rehab/pkg/model"
 )
@@ -11,6 +12,7 @@ import (
 // Lists all active modules under a path. The main module is the one contained in modulePath, and the active
 // modules are the main module and its dependencies.
 func ListModules(modulePath string) ([]*model.ModuleInfo, error) {
+	log.Printf("fetching module information for %s", modulePath)
 	raw, err := Exec(modulePath, "go", "list", "-json", "-u", "-m", "all")
 	if err != nil {
 		return nil, fmt.Errorf("failed listing packages for %s: %w", modulePath, err)
@@ -27,6 +29,7 @@ func ListModules(modulePath string) ([]*model.ModuleInfo, error) {
 
 // Lists all packages transitively depended upon by a path.
 func ListPackages(packagePath string) ([]*model.PackageInfo, error) {
+	log.Printf("fetching package information for %s", packagePath)
 	raw, err := Exec(packagePath, "go", "list", "-json", "all")
 	if err != nil {
 		return nil, fmt.Errorf("failed listing packages for %s: %w", packagePath, err)

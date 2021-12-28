@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/anorth/rehab/pkg/model"
@@ -13,6 +14,7 @@ import (
 // The main module at modulePath is returned first.
 // See https://go.dev/ref/mod#go-mod-graph
 func ListModuleDependencies(modulePath string) ([]model.ModuleRelationship, error) {
+	log.Printf("fetching module requirement graph for %s", modulePath)
 	raw, err := Exec(modulePath, "go", "mod", "graph")
 	if err != nil {
 		return nil, fmt.Errorf("failed listing dependencies for %s: %w", modulePath, err)

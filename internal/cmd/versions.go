@@ -1,4 +1,4 @@
-package action
+package cmd
 
 import (
 	"fmt"
@@ -40,8 +40,6 @@ func (sv *StaleVersion) String() string {
 // This situation means that the tests for the consuming module run with a different version of the
 // dependency than that actually used in production.
 func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersion {
-	// TODO: option to only suggest release versions, not git checkpoints
-	// TODO: option to only propose fixes to known latest versions
 	var found []*StaleVersion
 	q := []model.ModuleVersion{{modules.Main().Path, modules.Main().Version}}
 	// Records the modules in the graph which have been traversed already.
