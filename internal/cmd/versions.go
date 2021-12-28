@@ -1,4 +1,4 @@
-package action
+package cmd
 
 import (
 	"fmt"
@@ -18,11 +18,6 @@ type StaleVersion struct {
 }
 
 func (sv *StaleVersion) String() string {
-	tag := "-"
-	obsolete := sv.SelectedVersion != sv.HighestVersion
-	if obsolete {
-		tag = "O"
-	}
 	via := fmt.Sprintf(" via %s", sv.SelectedReason)
 	if sv.SelectedReason.Module == "" || sv.SelectedReason == sv.Consumer {
 		via = ""
@@ -31,8 +26,8 @@ func (sv *StaleVersion) String() string {
 		via = via + " (has stale transitive requirements)"
 	}
 
-	return fmt.Sprintf("%s%s requires %s, builds with %s%s (highest %s)",
-		tag, sv.Consumer, sv.Requirement, sv.SelectedVersion, via, sv.HighestVersion)
+	return fmt.Sprintf("%s requires %s, builds with %s%s (highest %s)",
+		sv.Consumer, sv.Requirement, sv.SelectedVersion, via, sv.HighestVersion)
 }
 
 // Finds imports in a dependency tree based at some root module where a declared dependency module version
@@ -40,8 +35,6 @@ func (sv *StaleVersion) String() string {
 // This situation means that the tests for the consuming module run with a different version of the
 // dependency than that actually used in production.
 func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersion {
-	// TODO: option to only suggest release versions, not git checkpoints
-	// TODO: option to only propose fixes to known latest versions
 	var found []*StaleVersion
 	q := []model.ModuleVersion{{modules.Main().Path, modules.Main().Version}}
 	// Records the modules in the graph which have been traversed already.
@@ -106,7 +99,7 @@ func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersi
 				// Trace through deeper in the requirement graph only for the version of the upstream
 				// that is the one selected by MVS.
 				_, seen := modulesSeen[req.Upstream.Module]
-				if !seen && req.Upstream.Module[:11] != "golang.org/" { // TODO: replace with whitelist
+				if !seen && req.Upstream.Module[:11] != "golang.org/" { // Replace with whitelist?
 					q = append(q, req.Upstream)
 					modulesSeen[req.Upstream.Module] = struct{}{}
 				}

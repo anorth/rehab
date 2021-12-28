@@ -2,69 +2,99 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 
-	"github.com/anorth/rehab/internal/action"
-	"github.com/anorth/rehab/internal/db"
-	"github.com/anorth/rehab/internal/fetch"
-	"github.com/anorth/rehab/pkg/model"
+	"github.com/anorth/rehab/internal/cmd"
+	"github.com/urfave/cli/v2"
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fail("Usage: %s <path>\n", os.Args[0])
-	}
-	root := os.Args[1]
+	// Task list:
+	// - option to only propose fixes to known latest versions, avoid possibly-redundant fixes
+	// - option to only change leaves in the stale graph, never update to something that needs to be updated itself (default?)
+	// - option to upgrade to MVS-selected, instead of highest.
+	// - command to push latest release of a specific upstream through the graph
 
-	mods, err := fetch.ListModules(root)
+	rehab := cmd.Rehab{
+		GitHubToken:      "",
+		MinimumUpgrade:   false,
+		BranchPrefix:     "rehab/",
+		MakePullRequests: false,
+	}
+	allFlag := &cli.BoolFlag{
+		Name:     "all",
+		Aliases:  []string{"a"},
+		Usage:    "shows updates for all packages in the dependency tree",
+		Required: false,
+	}
+	pullFlag := &cli.BoolFlag{
+		Name:        "pull",
+		Aliases:     nil,
+		Usage:       "initiates pull requests for proposed changes (otherwise only pushes branches)",
+		Required:    false,
+		Destination: &rehab.MakePullRequests,
+	}
+	minimumFlag := &cli.BoolFlag{
+		Name:        "minimum",
+		Aliases:     nil,
+		Usage:       "upgrades to MVS-selected version of requirements rather than the latest available",
+		Required:    false,
+		Destination: &rehab.MinimumUpgrade,
+	}
+	app := &cli.App{
+		Name:     "rehab",
+		HelpName: "rehab",
+		Usage:    "treatment for dependencies",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "token",
+				Aliases:     nil,
+				Usage:       "GitHub authentication token",
+				EnvVars:     []string{"GITHUB_TOKEN"},
+				Required:    true,
+				Destination: &rehab.GitHubToken,
+			},
+		},
+		Commands: []*cli.Command{
+			{
+				Name:  "show",
+				Usage: "shows requirement updates available for a module",
+				Flags: []cli.Flag{
+					allFlag,
+				},
+				Action: func(c *cli.Context) error {
+					if c.NArg() != 1 {
+						return fmt.Errorf("module root required")
+					}
+					root := c.Args().Get(0)
+					all := c.Bool("all")
+					return rehab.Show(root, all)
+				},
+			},
+			{
+				Name:  "upgrade",
+				Usage: "makes a pull request updating a module's requirements",
+				Flags: []cli.Flag{
+					allFlag,
+					pullFlag,
+					minimumFlag,
+				},
+				Action: func(c *cli.Context) error {
+					if c.NArg() != 1 {
+						return fmt.Errorf("module root required")
+					}
+					root := c.Args().Get(0)
+					all := c.Bool("all")
+					return rehab.Propose(c.Context, root, all)
+				},
+			},
+		},
+	}
+
+	log.SetFlags(0)
+	err := app.Run(os.Args)
 	if err != nil {
-		fail("error listing modules: %v", err)
+		log.Fatal(err)
 	}
-	modules := db.NewModules(mods)
-	//dumpModules(modules)
-
-	modDeps, err := fetch.ListModuleDependencies(root)
-	if err != nil {
-		fail("error listing dependencies: %v", err)
-	}
-	modGraph := db.NewModGraph(modDeps)
-	//dumpRelationships(modGraph)
-
-	//packages, err := fetch.ListPackages(root)
-	//if err != nil {
-	//	fail("error listing dependencies: %v", err)
-	//}
-	//dumpPackages(packages)
-
-	stale := action.FindStaleVersions(modules, modGraph)
-	for _, s := range stale {
-		fmt.Println(s)
-		//fmt.Println(node, "depends on", d.Upstream, "but MVS selects", bestVersion)
-	}
-}
-
-func dumpModules(modules *db.Modules) {
-	for _, mod := range modules.All() {
-		fmt.Println(mod.Path, mod.Version)
-	}
-}
-
-func dumpPackages(packages []*model.PackageInfo) {
-	for _, pkg := range packages {
-		fmt.Printf("%s:%s\n", pkg.ImportPath, pkg.Name)
-		for _, im := range pkg.Imports {
-			fmt.Printf("  %s\n", im)
-		}
-	}
-}
-
-func dumpRelationships(g *db.ModGraph) {
-	for _, dep := range g.Edges() {
-		fmt.Println(dep)
-	}
-}
-
-func fail(format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(os.Stderr, format, args...)
-	os.Exit(1)
 }
