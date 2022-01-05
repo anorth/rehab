@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -22,6 +22,7 @@ func main() {
 		BranchPrefix:     "rehab/",
 		MakePullRequests: false,
 	}
+	verbose := false
 	allFlag := &cli.BoolFlag{
 		Name:     "all",
 		Aliases:  []string{"a"},
@@ -42,6 +43,11 @@ func main() {
 		Required:    false,
 		Destination: &rehab.MinimumUpgrade,
 	}
+	verboseFlag := &cli.BoolFlag{
+		Name:        "verbose",
+		Aliases:     []string{"v"},
+		Destination: &verbose,
+	}
 	app := &cli.App{
 		Name:     "rehab",
 		HelpName: "rehab",
@@ -55,6 +61,7 @@ func main() {
 				Required:    true,
 				Destination: &rehab.GitHubToken,
 			},
+			verboseFlag,
 		},
 		Commands: []*cli.Command{
 			{
@@ -62,13 +69,18 @@ func main() {
 				Usage: "shows requirement updates available for a module",
 				Flags: []cli.Flag{
 					allFlag,
+					verboseFlag,
 				},
 				Action: func(c *cli.Context) error {
 					if c.NArg() != 1 {
-						return fmt.Errorf("module root required")
+						cli.ShowSubcommandHelpAndExit(c, 1)
+
 					}
 					root := c.Args().Get(0)
 					all := c.Bool("all")
+					if !c.Bool("verbose") {
+						log.SetOutput(io.Discard)
+					}
 					return rehab.Show(root, all)
 				},
 			},
@@ -79,13 +91,17 @@ func main() {
 					allFlag,
 					pullFlag,
 					minimumFlag,
+					verboseFlag,
 				},
 				Action: func(c *cli.Context) error {
 					if c.NArg() != 1 {
-						return fmt.Errorf("module root required")
+						cli.ShowSubcommandHelpAndExit(c, 1)
 					}
 					root := c.Args().Get(0)
 					all := c.Bool("all")
+					if !c.Bool("verbose") {
+						log.SetOutput(io.Discard)
+					}
 					return rehab.Propose(c.Context, root, all)
 				},
 			},

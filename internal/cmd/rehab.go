@@ -80,7 +80,7 @@ func (app *Rehab) Propose(ctx context.Context, root string, all bool) error {
 		pullURL, err := app.proposeUpgrade(ctx, module, app.GitHubToken, reqs)
 		if err != nil {
 			// Keep trying other modules (the error may be a missing push permission).
-			log.Printf("failed upgrading %s: %s", module.Path, err)
+			fmt.Printf("Failed upgrading %s (no push permission?): %s\n", module.Path, err)
 			continue
 		} else if pullURL == ""  {
 			fmt.Println("No changes for", module.Path)

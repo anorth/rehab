@@ -61,13 +61,13 @@ func (r *Remote) EditFile(ctx context.Context, name string, edit func([]byte) ([
 	owner, repo := r.ID()
 	commits, _, err := r.client.Repositories.ListCommits(ctx, owner, repo, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed listing commits for %s: %w", r.URL(), err)
+		return "", fmt.Errorf("failed listing commits: %w", err)
 	}
 	head := commits[0]
 	log.Printf("head at %s by %s", head.GetSHA(), head.GetAuthor().GetLogin())
 	tree, _, err := r.client.Git.GetTree(ctx, owner, repo, head.GetSHA(), false)
 	if err != nil {
-		return "", fmt.Errorf("failed fetching tree for %s at %s: %w", r.URL(), head.GetSHA(), err)
+		return "", fmt.Errorf("failed fetching tree: %w", err)
 	}
 
 	var fileEntry *github.TreeEntry
@@ -85,7 +85,7 @@ func (r *Remote) EditFile(ctx context.Context, name string, edit func([]byte) ([
 	//log.Printf("fetching blob for %s", fileEntry.GetPath())
 	fileBlob, _, err := r.client.Git.GetBlob(ctx, owner, repo, fileEntry.GetSHA())
 	if err != nil {
-		return "", fmt.Errorf("failed fetching blob for %s in %s at %s: %w", name, r.URL(), head.GetSHA(), err)
+		return "", fmt.Errorf("failed fetching blob for %s at %s: %w", name, head.GetSHA(), err)
 	}
 	content := fileBlob.GetContent()
 	b64 := base64.StdEncoding
@@ -97,7 +97,7 @@ func (r *Remote) EditFile(ctx context.Context, name string, edit func([]byte) ([
 
 	modifiedContent, err := edit(decoded[:decodedLen])
 	if err != nil {
-		return "", fmt.Errorf("failed editing file %s in %s at %s: %w", name, r.URL(), head.GetSHA(), err)
+		return "", fmt.Errorf("failed editing file %s at %s: %w", name, head.GetSHA(), err)
 	}
 
 	if bytes.Equal(decoded[:decodedLen], modifiedContent) {
@@ -116,7 +116,7 @@ func (r *Remote) EditFile(ctx context.Context, name string, edit func([]byte) ([
 	newTree, _, err := r.client.Git.CreateTree(ctx, owner, repo, tree.GetSHA(), []github.TreeEntry{newEntry})
 	if err != nil {
 		// This will fail with request status code 404 if token lacks push permission.
-		return "", fmt.Errorf("failed to create new tree for %s: %w", r.URL(), err)
+		return "", fmt.Errorf("failed to create new tree: %w", err)
 	}
 	//log.Printf("new tree %+v", newTree)
 
@@ -131,7 +131,7 @@ func (r *Remote) EditFile(ctx context.Context, name string, edit func([]byte) ([
 	log.Printf("pushing commit for tree %s", newTree.GetSHA())
 	commit, _, err := r.client.Git.CreateCommit(ctx, owner, repo, &newCommit)
 	if err != nil {
-		return "",  fmt.Errorf("failed to commit new tree for %s: %w", r.URL(), err)
+		return "",  fmt.Errorf("failed to commit new tree: %w", err)
 	}
 	log.Printf("pushed commit %s", commit.GetSHA())
 	return commit.GetSHA(), nil
@@ -157,7 +157,7 @@ func (r *Remote) MakeBranch(ctx context.Context, commitSHA, name string) (string
 		}
 	}
 	if err != nil {
-		return "", fmt.Errorf("failed to push ref %s %s for %s: %w", refName, commitSHA, r.URL(), err)
+		return "", fmt.Errorf("failed to push ref %s %s: %w", refName, commitSHA, err)
 	}
 	return refName, nil
 }
@@ -180,7 +180,7 @@ func (r *Remote) MakePull(ctx context.Context, refName, title, message string) (
 	log.Printf("making pull request for %s on %s", newPull.GetHead(), newPull.GetBase())
 	pull, _, err := r.client.PullRequests.Create(ctx, owner, repo, &newPull)
 	if err != nil {
-		return "", fmt.Errorf("failed making pull request ref %s for %s: %w", refName, r.URL(), err)
+		return "", fmt.Errorf("failed making pull request ref %s: %w", refName, err)
 	}
 	return pull.GetURL(), nil
 }
