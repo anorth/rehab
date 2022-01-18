@@ -10,12 +10,6 @@ import (
 )
 
 func main() {
-	// Task list:
-	// - option to only propose fixes to known latest versions, avoid possibly-redundant fixes
-	// - option to only change leaves in the stale graph, never update to something that needs to be updated itself (default?)
-	// - option to upgrade to MVS-selected, instead of highest.
-	// - command to push latest release of a specific upstream through the graph
-
 	rehab := cmd.Rehab{
 		GitHubToken:      "",
 		MinimumUpgrade:   false,

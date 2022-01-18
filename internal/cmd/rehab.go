@@ -35,10 +35,10 @@ func (app *Rehab) Show(root string, all bool) error {
 
 	stale := FindStaleVersions(modules, modGraph)
 	sort.Slice(stale, func(i, j int) bool {
-		return strings.Compare(stale[i].Consumer.Module, stale[j].Consumer.Module) < 0
+		return strings.Compare(stale[i].Consumer.Path, stale[j].Consumer.Path) < 0
 	})
 	for _, s := range stale {
-		if s.Consumer.Module == mainModule.Path || all {
+		if s.Consumer.Path == mainModule.Path || all {
 			fmt.Println(s)
 		}
 	}
@@ -60,13 +60,13 @@ func (app *Rehab) Propose(ctx context.Context, root string, all bool) error {
 	// Proposed requirement upgrades keyed by consuming module
 	upgrades := map[string][]model.ModuleVersion{}
 	for _, s := range stale {
-		if s.Consumer.Module == mainModule.Path || all {
+		if s.Consumer.Path == mainModule.Path || all {
 			upgradeTo := s.HighestVersion
 			if app.MinimumUpgrade {
 				upgradeTo = s.SelectedVersion
 			}
-			upgrades[s.Consumer.Module] = append(upgrades[s.Consumer.Module], model.ModuleVersion{
-				Module:  s.Requirement.Module,
+			upgrades[s.Consumer.Path] = append(upgrades[s.Consumer.Path], model.ModuleVersion{
+				Path:  s.Requirement.Path,
 				Version: upgradeTo,
 			})
 		}
@@ -132,7 +132,7 @@ func (app *Rehab) proposeUpgrade(ctx context.Context, module *model.ModuleInfo, 
 		// Replace go.mod file lines
 		modified := false
 		for _, req := range reqs {
-			err = modFile.AddRequire(req.Module, req.Version) // Updates requirement in-place, preserving comments.
+			err = modFile.AddRequire(req.Path, req.Version) // Updates requirement in-place, preserving comments.
 			if err != nil {
 				log.Printf("failed to add requirement %s: %w", req, err)
 				continue

@@ -19,7 +19,7 @@ type StaleVersion struct {
 
 func (sv *StaleVersion) String() string {
 	via := fmt.Sprintf(" via %s", sv.SelectedReason)
-	if sv.SelectedReason.Module == "" || sv.SelectedReason == sv.Consumer {
+	if sv.SelectedReason.Path == "" || sv.SelectedReason == sv.Consumer {
 		via = ""
 	}
 	if sv.TransitiveStale {
@@ -38,7 +38,7 @@ func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersi
 	var found []*StaleVersion
 	q := []model.ModuleVersion{{modules.Main().Path, modules.Main().Version}}
 	// Records the modules in the graph which have been traversed already.
-	modulesSeen := map[string]struct{}{q[0].Module: {}}
+	modulesSeen := map[string]struct{}{q[0].Path: {}}
 	// Records the stale relationships already recorded.
 	type staleversionkey struct {
 		consumer, requirement string
@@ -47,26 +47,26 @@ func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersi
 	var node model.ModuleVersion
 	for len(q) > 0 {
 		node, q = q[0], q[1:]
-		requirements := modGraph.UpstreamOf(node.Module, node.Version)
-		downstreamInfo, err := modules.ForPath(node.Module)
+		requirements := modGraph.UpstreamOf(node.Path, node.Version)
+		downstreamInfo, err := modules.ForPath(node.Path)
 		if err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, "failed loading module of", node.Module, err)
+			_, _ = fmt.Fprintln(os.Stderr, "failed loading module of", node.Path, err)
 			continue
 		}
 		downstreamIsOutdated := false
 		for _, req := range requirements {
-			key := staleversionkey{consumer: req.Downstream.Module, requirement: req.Upstream.Module}
+			key := staleversionkey{consumer: req.Downstream.Path, requirement: req.Upstream.Path}
 			if _, ok := edgesSeen[key]; ok {
 				continue
 			}
-			upstreamSelected, reason, err := modGraph.SelectedVersion(req.Upstream.Module)
+			upstreamSelected, reason, err := modGraph.SelectedVersion(req.Upstream.Path)
 			if err != nil {
-				_, _ = fmt.Fprintln(os.Stderr, "failed checking highest version of", req.Upstream.Module, err)
+				_, _ = fmt.Fprintln(os.Stderr, "failed checking highest version of", req.Upstream.Path, err)
 				continue
 			}
-			upstreamInfo, err := modules.ForPath(req.Upstream.Module)
+			upstreamInfo, err := modules.ForPath(req.Upstream.Path)
 			if err != nil {
-				_, _ = fmt.Fprintln(os.Stderr, "failed loading module of", req.Upstream.Module, err)
+				_, _ = fmt.Fprintln(os.Stderr, "failed loading module of", req.Upstream.Path, err)
 				continue
 			}
 			upstreamLatest := upstreamInfo.Version
@@ -98,10 +98,10 @@ func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersi
 			} else {
 				// Trace through deeper in the requirement graph only for the version of the upstream
 				// that is the one selected by MVS.
-				_, seen := modulesSeen[req.Upstream.Module]
-				if !seen && req.Upstream.Module[:11] != "golang.org/" { // Replace with whitelist?
+				_, seen := modulesSeen[req.Upstream.Path]
+				if !seen && req.Upstream.Path[:11] != "golang.org/" { // Replace with whitelist?
 					q = append(q, req.Upstream)
-					modulesSeen[req.Upstream.Module] = struct{}{}
+					modulesSeen[req.Upstream.Path] = struct{}{}
 				}
 			}
 		}
@@ -110,7 +110,7 @@ func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersi
 			downstreamLatest := downstreamInfo.Update
 			requirers := modGraph.DownstreamOf(downstreamInfo.Path, downstreamInfo.Version)
 			for _, req := range requirers {
-				key := staleversionkey{consumer: req.Downstream.Module, requirement: req.Upstream.Module}
+				key := staleversionkey{consumer: req.Downstream.Path, requirement: req.Upstream.Path}
 				if _, ok := edgesSeen[key]; ok {
 					continue
 				}
