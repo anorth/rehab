@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/anorth/rehab/internal/db"
 	"github.com/anorth/rehab/pkg/model"
@@ -99,7 +100,7 @@ func FindStaleVersions(modules *db.Modules, modGraph *db.ModGraph) []*StaleVersi
 				// Trace through deeper in the requirement graph only for the version of the upstream
 				// that is the one selected by MVS.
 				_, seen := modulesSeen[req.Upstream.Path]
-				if !seen && req.Upstream.Path[:11] != "golang.org/" { // Replace with whitelist?
+				if !seen && (! strings.HasPrefix(req.Upstream.Path, "golang.org/")) { // Replace with whitelist?
 					q = append(q, req.Upstream)
 					modulesSeen[req.Upstream.Path] = struct{}{}
 				}
